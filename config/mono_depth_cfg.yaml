@@ -1,0 +1,11 @@
+/**:
+  ros__parameters:
+    image_topic: "/kitti/camera/color/left/image_raw"   # Image topic to subscribe to
+    depth_weights_file: "/weights/rt_monodepth_full.engine" # Path to depth estimation file
+    camera_frame: "hero/front"
+    camera_image_height: 640
+    camera_image_width: 640
+    fx: 320.0 
+    fy: 320.0
+    cx: 320.0
+    cy: 240.0
