@@ -1,4 +1,5 @@
 #include "mono_depth/depth_estimation_node.hpp"
+#include <rclcpp/logging.hpp>
 #include <rclcpp/qos.hpp>
 #include <sensor_msgs/msg/detail/point_cloud2__struct.hpp>
 
@@ -39,17 +40,17 @@ DepthEstimationNode::DepthEstimationNode() : Node("depth_estimation_node")
   std::string depth_weight_path = share_dir + depth_weight_file_;
 
   // Initialize TensorRT and depthEstimation class
-  monodepth_ = MonoDepthEstimation(depth_input_h_, depth_input_w_, fx_, fy_, cx_, cy_,
-                                   depth_weight_path);
-
+  monodepth_ = std::make_unique<MonoDepthEstimation>(depth_input_h_, depth_input_w_, fx_,
+                                                     fy_, cx_, cy_, depth_weight_path);
   // Initialize tf2 for transforms
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
+}
 
-  // Set Intrinsic Matrix
-  // intrinsic_mat_ = object_detection::setIntrinsicMatrix(fx_, fy_, cx_, cy_);
-  // Get Intrinsic Matrix Inverse
-  // K_inv_ = object_detection::computeKInverse(intrinsic_mat_);
+DepthEstimationNode::~DepthEstimationNode()
+{
+  timer_->cancel();
+  monodepth_.reset();
 }
 
 void DepthEstimationNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
@@ -85,13 +86,19 @@ void DepthEstimationNode::timerCallback()
     return;
   }
 
-  RCLCPP_ERROR(this->get_logger(), "RUN THE DEPTH ESTIMATION");
+  auto start_time = std::chrono::steady_clock::now();
+  // Run Monocular depth estimation
   monodepth_->runInference(init_image_);
-  RCLCPP_ERROR(this->get_logger(), "DEPTH ESTIMATION DONE");
 
+  auto end_time = std::chrono::steady_clock::now();
+  auto duration_ms
+    = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+  RCLCPP_INFO(this->get_logger(), "Inference took %ld ms", duration_ms);
+
+  // Publsuh depth image and depth cloud
   publishDepthImage(depth_img_pub_);
   publishDepthCloud(depth_cloud_pub_);
-  RCLCPP_ERROR(this->get_logger(), "LOOP COMPLETE");
 }
 
 void DepthEstimationNode::publishDepthImage(const image_transport::Publisher &pub)

@@ -16,6 +16,7 @@
 #include <tf2_ros/buffer.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,6 +26,7 @@ class DepthEstimationNode : public rclcpp::Node
 {
 public:
   DepthEstimationNode();
+  ~DepthEstimationNode();
 
 private:
   // Params
@@ -38,9 +40,7 @@ private:
   // Variables
   cv::Mat init_image_;
   cv_bridge::CvImagePtr init_image_ptr_;
-  Eigen::Matrix3d intrinsic_mat_;
-  Eigen::Matrix3d K_inv_;
-  std::optional<MonoDepthEstimation> monodepth_;
+  std::unique_ptr<MonoDepthEstimation> monodepth_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
 

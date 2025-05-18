@@ -28,6 +28,7 @@ class MonoDepthEstimation
 {
 public:
   MonoDepthEstimation(int, int, float, float, float, float, const std::string &);
+  ~MonoDepthEstimation();
 
   // Delete copy constructor and assignment
   MonoDepthEstimation(const MonoDepthEstimation &) = delete;
@@ -50,6 +51,11 @@ private:
   std::vector<float> result_;
   float fx_, fy_, cx_, cy_;
   bool use_rgb_ = true;
+
+  // Buffers
+  void *buffers_[2];
+  float *input_host_ = nullptr;
+  float *output_host_ = nullptr;
 
   // Tensorrt
   std::unique_ptr<nvinfer1::IRuntime> runtime;

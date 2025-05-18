@@ -21,8 +21,44 @@ MonoDepthEstimation::MonoDepthEstimation(int input_h, int input_w, float fx, flo
   // Set up TRT
   initializeTRT(depth_weight_file);
 
+  // Allocate buffers
+  cudaError_t err = cudaMallocHost(reinterpret_cast<void **>(&input_host_),
+                                   1 * 3 * resize_h_ * resize_w_ * sizeof(float));
+  cudaMalloc(&buffers_[0], 1 * 3 * resize_h_ * resize_w_ * sizeof(float));
+  cudaMallocHost(reinterpret_cast<void **>(&output_host_),
+                 resize_h_ * resize_w_ * sizeof(float));
+  cudaMalloc(&buffers_[1], resize_h_ * resize_w_ * sizeof(float));
+
   // Create stream
   cudaStreamCreate(&stream_);
+}
+
+MonoDepthEstimation::~MonoDepthEstimation()
+{
+  if(buffers_[0])
+  {
+    cudaFree(buffers_[0]);
+    buffers_[0] = nullptr;
+  }
+  if(buffers_[1])
+  {
+    cudaFree(buffers_[1]);
+    buffers_[1] = nullptr;
+  }
+  if(input_host_)
+  {
+    cudaFreeHost(input_host_);
+    input_host_ = nullptr;
+  }
+  if(output_host_)
+  {
+    cudaFreeHost(output_host_);
+    output_host_ = nullptr;
+  }
+  if(stream_)
+  {
+    cudaStreamDestroy(stream_);
+  }
 }
 
 cv::Mat MonoDepthEstimation::preprocessImage(const cv::Mat &image, int input_width,
@@ -89,43 +125,25 @@ void MonoDepthEstimation::runInference(const cv::Mat &input_img)
   cv::Mat processed_img = preprocessImage(input_img, resize_w_, resize_h_);
   std::vector<float> input_tensor = imageToTensor(processed_img);
 
-  spdlog::info("Image resizing and converting to tensor done");
-
-  // Allocate memory in GPU
-  void *buffers_[2];
-  float *input_host_ = nullptr;
-  float *output_host_ = nullptr;
-
-  cudaMallocHost(reinterpret_cast<void **>(&input_host_),
-                 1 * 3 * resize_h_ * resize_w_ * sizeof(float));
-  cudaMalloc(&buffers_[0], 1 * 3 * resize_h_ * resize_w_ * sizeof(float));
-  cudaMallocHost(reinterpret_cast<void **>(&output_host_),
-                 resize_h_ * resize_w_ * sizeof(float));
-  cudaMalloc(&buffers_[1], resize_h_ * resize_w_ * sizeof(float));
   // Copy to host memory and then to GPU
   std::memcpy(input_host_, input_tensor.data(),
               1 * 3 * resize_h_ * resize_w_ * sizeof(float));
   cudaMemcpyAsync(buffers_[0], input_host_, 1 * 3 * resize_h_ * resize_w_ * sizeof(float),
                   cudaMemcpyHostToDevice, stream_);
 
-  spdlog::info("Transfering to cudamalloc host and then to buffer done");
   // Set up inference buffers
   context->setInputTensorAddress("input", buffers_[0]);
   context->setOutputTensorAddress("depth", buffers_[1]);
-  spdlog::info("setting input and out done");
 
   // inference
   context->enqueueV3(stream_);
-  spdlog::info("inferencing done");
 
   // Copy the result back
   cudaMemcpyAsync(output_host_, buffers_[1], resize_h_ * resize_w_ * sizeof(float),
                   cudaMemcpyDeviceToHost, stream_);
 
-  spdlog::info("copying output to ouptu host done");
   cudaStreamSynchronize(stream_);
 
-  spdlog::info("stream synchronize done");
   int output_size = resize_h_ * resize_w_;
   result_.assign(output_host_, output_host_ + output_size);
 
@@ -137,18 +155,11 @@ void MonoDepthEstimation::runInference(const cv::Mat &input_img)
   cv::Mat resized_img;
   cv::resize(input_img, resized_img, cv::Size(resize_w_, resize_h_));
   createPointCloudFromDepth(depth_map_, resized_img);
-  cudaFreeHost(input_host_);
-  cudaFreeHost(output_host_);
-  cudaFree(buffers_[0]);
-  cudaFree(buffers_[1]);
 }
 
 cv::Mat MonoDepthEstimation::convertToDepthImg()
 {
-  spdlog::info("Converting Inference to cv::Mat");
-
   cv::Mat depth_map(resize_h_, resize_w_, CV_32FC1, result_.data());
-  spdlog::info("Conversion Successful");
   depth_map *= MAX_DEPTH;
   cv::Mat depth_vis;
   depth_map.convertTo(depth_vis, CV_8UC1, 255.0 / 80.0);
@@ -164,7 +175,7 @@ cv::Mat MonoDepthEstimation::convertToDepthImg()
 cv::Mat MonoDepthEstimation::convertToDepthMap()
 {
   cv::Mat depth_map(resize_h_, resize_w_, CV_32FC1, result_.data());
-  depth_map *= 80.0f;
+  depth_map *= MAX_DEPTH;
   return depth_map;
 }
 
@@ -237,7 +248,6 @@ void MonoDepthEstimation::initializeDepthCloud()
 
   depth_cloud_.row_step = depth_cloud_.point_step * depth_cloud_.width;
   depth_cloud_.data.resize(depth_cloud_.row_step * depth_cloud_.height);
-  spdlog::info("DEPTH CLOUD INITIALIZED");
 }
 
 void MonoDepthEstimation::createPointCloudFromDepth(const cv::Mat &depth,
