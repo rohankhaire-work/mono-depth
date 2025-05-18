@@ -13,6 +13,7 @@ find_package(image_transport REQUIRED)
 find_package(TensorRT REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(pcl_ros REQUIRED)
 
 
 add_executable(mono_depth src/depth_estimation_node.cpp                           src/depth_estimation.cpp)
@@ -20,7 +21,7 @@ target_include_directories(mono_depth PRIVATE include
                                             ${OpenCV_INCLUDE_DIRS}
                                             ${CUDAToolkit_INCLUDE_DIR} 
                                             ${TensorRT_INCLUDE_DIRS})
-ament_target_dependencies(mono_depth rclcpp cv_bridge image_transport)
+ament_target_dependencies(mono_depth rclcpp cv_bridge image_transport pcl_ros tf2_ros)
 
 target_link_libraries(mono_depth
     ${OpenCV_LIBS}

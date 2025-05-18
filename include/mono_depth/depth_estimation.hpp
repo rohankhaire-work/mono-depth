@@ -4,6 +4,10 @@
 #include <NvInfer.h>
 #include <cuda_runtime_api.h>
 #include <opencv2/opencv.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/point_field.hpp>
+#include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <sensor_msgs/image_encodings.hpp>
 
 #include <fstream>
 #include <iostream>
@@ -11,16 +15,19 @@
 #include <string>
 #include <vector>
 
-class Logger : public nvinfer1::ILogger {
-  void log(Severity severity, const char *msg) noexcept override {
-    if (severity <= Severity::kINFO)
+class Logger : public nvinfer1::ILogger
+{
+  void log(Severity severity, const char *msg) noexcept override
+  {
+    if(severity <= Severity::kINFO)
       std::cout << "[TRT] " << msg << std::endl;
   }
 };
 
-class MonoDepthEstimation {
+class MonoDepthEstimation
+{
 public:
-  MonoDepthEstimation(int, int, const std::string &);
+  MonoDepthEstimation(int, int, float, float, float, float, const std::string &);
 
   // Delete copy constructor and assignment
   MonoDepthEstimation(const MonoDepthEstimation &) = delete;
@@ -33,6 +40,7 @@ public:
   void runInference(const cv::Mat &input_img);
 
   cv::Mat depth_img_;
+  sensor_msgs::msg::PointCloud2 depth_cloud_;
 
 private:
   int resize_h_, resize_w_;
@@ -40,6 +48,8 @@ private:
   Logger gLogger;
   float MAX_DEPTH = 80.0f;
   std::vector<float> result_;
+  float fx_, fy_, cx_, cy_;
+  bool use_rgb_ = true;
 
   // Tensorrt
   std::unique_ptr<nvinfer1::IRuntime> runtime;
@@ -53,6 +63,8 @@ private:
 
   cv::Mat convertToDepthMap();
   cv::Mat convertToDepthImg();
+  void initializeDepthCloud();
+  void createPointCloudFromDepth(const cv::Mat &, const cv::Mat &);
 };
 
 #endif // DEPTH_ESTIMATION__DEPTH_ESTIMATION_HPP_
