@@ -50,12 +50,15 @@ public:
 private:
   int resize_h_, resize_w_;
   Logger gLogger;
-  float MAX_DEPTH = 80.0f;
   std::vector<float> result_;
   float fx_, fy_, cx_, cy_;
   bool use_rgb_ = true;
   float scaled_fx_, scaled_fy_;
   float scaled_cx_, scaled_cy_;
+  const float min_depth_ = 0.1f;
+  const float max_depth_ = 100.0f;
+  float min_disp_, max_disp_;
+  const float STEREO_SCALE_FACTOR = 5.4f;
 
   // Buffers
   void *buffers_[2];
@@ -71,7 +74,8 @@ private:
   cv::Mat preprocessImage(const cv::Mat &, int, int);
   std::vector<float> imageToTensor(const cv::Mat &);
   void initializeTRT(const std::string &);
-
+  cv::Mat normalizeRGB(const cv::Mat &input);
+  cv::Mat computeDepth();
   cv::Mat convertToDepthImg(const cv::Mat &);
   void initializeDepthCloud();
   void createPointCloudFromDepth(const cv::Mat &, const cv::Mat &);

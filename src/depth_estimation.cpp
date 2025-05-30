@@ -17,6 +17,10 @@ MonoDepthEstimation::MonoDepthEstimation(const CAMParams &cam_params,
   scaled_cx_ = static_cast<float>(cam_params.cx) * scale_x;
   scaled_cy_ = static_cast<float>(cam_params.cy) * scale_y;
 
+  // Calculate min and max disparity for depth calculation
+  min_disp_ = 1.0f / max_depth_;
+  max_disp_ = 1.0f / min_depth_;
+
   // initialize depth cloud
   initializeDepthCloud();
 
@@ -63,22 +67,43 @@ MonoDepthEstimation::~MonoDepthEstimation()
   }
 }
 
+cv::Mat MonoDepthEstimation::normalizeRGB(const cv::Mat &input)
+{
+  std::vector<cv::Mat> channels(3);
+  cv::split(input, channels);
+
+  std::vector<cv::Mat> temp_data;
+  temp_data.resize(3);
+
+  for(int i = 0; i < 3; ++i)
+  {
+    cv::Mat float_channel;
+    channels[i].convertTo(float_channel, CV_32F);
+
+    cv::Scalar mean, stddev;
+    cv::meanStdDev(float_channel, mean, stddev);
+
+    // Normalize: (x - mean) / std
+    temp_data[i] = (float_channel - mean[0]) / stddev[0];
+  }
+
+  // Convert to cv::Mat
+  cv::Mat normalized_rgb;
+  cv::vconcat(temp_data, normalized_rgb);
+
+  return normalized_rgb;
+}
+
 cv::Mat MonoDepthEstimation::preprocessImage(const cv::Mat &image, int input_width,
                                              int input_height)
 {
-  cv::Mat resized, float_image;
+  cv::Mat resized, chw_image;
 
   // Resize to model input size
   cv::resize(image, resized, cv::Size(input_width, input_height));
 
-  // Convert to float32
-  resized.convertTo(float_image, CV_32F, 1.0 / 255.0); // Normalize to [0,1]
-
-  // Convert from HWC to CHW format
-  std::vector<cv::Mat> channels(3);
-  cv::split(float_image, channels);
-  cv::Mat chw_image;
-  cv::vconcat(channels, chw_image); // Stack channels in CHW order
+  // Convert to float32 and CHW
+  chw_image = normalizeRGB(resized);
 
   return chw_image;
 }
@@ -172,8 +197,7 @@ void MonoDepthEstimation::runInference(const cv::Mat &input_img)
   result_.assign(output_host_, output_host_ + output_size);
 
   // Convert to cv::Mat
-  cv::Mat depth_map(resize_h_, resize_w_, CV_32FC1, result_.data());
-  depth_map = depth_map * MAX_DEPTH;
+  cv::Mat depth_map = computeDepth();
 
   // store the depth image
   depth_img_ = convertToDepthImg(depth_map);
@@ -184,10 +208,20 @@ void MonoDepthEstimation::runInference(const cv::Mat &input_img)
   createPointCloudFromDepth(depth_map, resized_img);
 }
 
+cv::Mat MonoDepthEstimation::computeDepth()
+{
+  cv::Mat result_mat(resize_h_, resize_w_, CV_32F, result_.data());
+  cv::Mat scaled_disp = min_disp_ + (max_disp_ - min_disp_) * result_mat;
+  cv::Mat depth = 1.0f / scaled_disp;
+  depth = STEREO_SCALE_FACTOR * depth;
+
+  return depth;
+}
+
 cv::Mat MonoDepthEstimation::convertToDepthImg(const cv::Mat &depth_map)
 {
   cv::Mat depth_vis;
-  depth_map.convertTo(depth_vis, CV_8UC1, 255.0 / MAX_DEPTH);
+  depth_map.convertTo(depth_vis, CV_8UC1, 255.0 / max_depth_);
   cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(8, 8));
   cv::Mat depth_clahe;
   clahe->apply(depth_vis, depth_clahe);
@@ -276,17 +310,13 @@ void MonoDepthEstimation::createPointCloudFromDepth(const cv::Mat &depth,
   sensor_msgs::PointCloud2Iterator<float> iter_z(depth_cloud_, "z");
   sensor_msgs::PointCloud2Iterator<float> iter_rgb(depth_cloud_, "rgb");
 
-  // Image flip vertically
-  cv::Mat depth_flipped;
-  cv::flip(depth, depth_flipped, 0);
-
   for(int v = 0; v < depth.rows; ++v)
   {
     for(int u = 0; u < depth.cols; ++u, ++iter_x, ++iter_y, ++iter_z)
     {
       float z;
 
-      z = depth_flipped.at<float>(v, u);
+      z = depth.at<float>(v, u);
 
       *iter_x = (u - scaled_cx_) * z / scaled_fx_;
       *iter_y = (v - scaled_cy_) * z / scaled_fy_;
