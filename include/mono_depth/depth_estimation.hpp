@@ -15,6 +15,18 @@
 #include <string>
 #include <vector>
 
+struct CAMParams
+{
+  int orig_h;
+  int orig_w;
+  int network_h;
+  int network_w;
+  double fx;
+  double fy;
+  double cx;
+  double cy;
+};
+
 class Logger : public nvinfer1::ILogger
 {
   void log(Severity severity, const char *msg) noexcept override
@@ -27,16 +39,8 @@ class Logger : public nvinfer1::ILogger
 class MonoDepthEstimation
 {
 public:
-  MonoDepthEstimation(int, int, float, float, float, float, const std::string &);
+  MonoDepthEstimation(const CAMParams &, const std::string &);
   ~MonoDepthEstimation();
-
-  // Delete copy constructor and assignment
-  MonoDepthEstimation(const MonoDepthEstimation &) = delete;
-  MonoDepthEstimation &operator=(const MonoDepthEstimation &) = delete;
-
-  // Allow move semantics
-  MonoDepthEstimation(MonoDepthEstimation &&) noexcept = default;
-  MonoDepthEstimation &operator=(MonoDepthEstimation &&) noexcept = default;
 
   void runInference(const cv::Mat &input_img);
 
@@ -45,12 +49,13 @@ public:
 
 private:
   int resize_h_, resize_w_;
-  cv::Mat depth_map_;
   Logger gLogger;
   float MAX_DEPTH = 80.0f;
   std::vector<float> result_;
   float fx_, fy_, cx_, cy_;
   bool use_rgb_ = true;
+  float scaled_fx_, scaled_fy_;
+  float scaled_cx_, scaled_cy_;
 
   // Buffers
   void *buffers_[2];
@@ -67,8 +72,7 @@ private:
   std::vector<float> imageToTensor(const cv::Mat &);
   void initializeTRT(const std::string &);
 
-  cv::Mat convertToDepthMap();
-  cv::Mat convertToDepthImg();
+  cv::Mat convertToDepthImg(const cv::Mat &);
   void initializeDepthCloud();
   void createPointCloudFromDepth(const cv::Mat &, const cv::Mat &);
 };

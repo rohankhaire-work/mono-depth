@@ -10,14 +10,14 @@ DepthEstimationNode::DepthEstimationNode() : Node("depth_estimation_node")
   depth_weight_file_ = declare_parameter<std::string>("depth_weights_file", "");
   camera_frame_ = declare_parameter<std::string>("camera_frame", "");
   base_frame_ = declare_parameter<std::string>("base_frame", "");
-  depth_input_h_ = declare_parameter("depth_network_height", 192);
-  depth_input_w_ = declare_parameter("depth_network_width", 640);
-  cam_height_ = declare_parameter("camera_image_height", 480);
-  cam_width_ = declare_parameter("camera_image_width", 640);
-  fx_ = declare_parameter("fx", 0.0);
-  fy_ = declare_parameter("fy", 0.0);
-  cx_ = declare_parameter("cx", 0.0);
-  cy_ = declare_parameter("cy", 0.0);
+  cam_params_.network_h = declare_parameter("depth_network_height", 192);
+  cam_params_.network_w = declare_parameter("depth_network_width", 640);
+  cam_params_.orig_h = declare_parameter("camera_image_height", 480);
+  cam_params_.orig_w = declare_parameter("camera_image_width", 640);
+  cam_params_.fx = declare_parameter("fx", 0.0);
+  cam_params_.fy = declare_parameter("fy", 0.0);
+  cam_params_.cx = declare_parameter("cx", 0.0);
+  cam_params_.cy = declare_parameter("cy", 0.0);
 
   if(image_topic_.empty() || depth_weight_file_.empty())
   {
@@ -40,8 +40,8 @@ DepthEstimationNode::DepthEstimationNode() : Node("depth_estimation_node")
   std::string depth_weight_path = share_dir + depth_weight_file_;
 
   // Initialize TensorRT and depthEstimation class
-  monodepth_ = std::make_unique<MonoDepthEstimation>(depth_input_h_, depth_input_w_, fx_,
-                                                     fy_, cx_, cy_, depth_weight_path);
+  monodepth_ = std::make_unique<MonoDepthEstimation>(cam_params_, depth_weight_path);
+
   // Initialize tf2 for transforms
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);

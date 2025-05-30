@@ -4,9 +4,10 @@
     depth_weights_file: "/weights/rt_monodepth_full.engine" # Path to depth estimation file
     camera_frame: "cam2_link"
     base_frame: "base_link"
-    camera_image_height: 640
-    camera_image_width: 640
+    camera_image_height: 375
+    camera_image_width: 1242
     fx: 721.5377
     fy: 721.5377
-    cx: 320.0
-    cy: 96.0
+    cx: 607.1928
+    cy: 185.2157
+

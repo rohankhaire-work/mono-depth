@@ -9,7 +9,6 @@
 #include <image_transport/image_transport.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/detail/point_cloud2__struct.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <pcl_ros/transforms.hpp>
 #include <tf2_ros/transform_listener.h>
@@ -33,9 +32,7 @@ private:
   std::string image_topic_;
   std::string depth_weight_file_;
   std::string camera_frame_, base_frame_;
-  int depth_input_h_, depth_input_w_;
-  int cam_height_, cam_width_;
-  int fy_, fx_, cy_, cx_;
+  CAMParams cam_params_;
 
   // Variables
   cv::Mat init_image_;

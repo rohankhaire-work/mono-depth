@@ -1,19 +1,21 @@
 #include "mono_depth/depth_estimation.hpp"
 #include <sensor_msgs/msg/detail/point_cloud2__struct.hpp>
 
-MonoDepthEstimation::MonoDepthEstimation(int input_h, int input_w, float fx, float fy,
-                                         float cx, float cy,
+MonoDepthEstimation::MonoDepthEstimation(const CAMParams &cam_params,
                                          const std::string &depth_weight_file)
 {
   // Set depth img size and detection img size
-  resize_h_ = input_h;
-  resize_w_ = input_w;
+  resize_h_ = cam_params.network_h;
+  resize_w_ = cam_params.network_w;
 
-  // Set intrinsic params
-  fx_ = fx;
-  fy_ = fy;
-  cx_ = cx;
-  cy_ = cy;
+  // Calcualte scaled cam intrinsics
+  float scale_x = static_cast<float>(cam_params.network_w) / cam_params.orig_w;
+  float scale_y = static_cast<float>(cam_params.network_h) / cam_params.orig_h;
+
+  scaled_fx_ = static_cast<float>(cam_params.fx) * scale_x;
+  scaled_fy_ = static_cast<float>(cam_params.fy) * scale_y;
+  scaled_cx_ = static_cast<float>(cam_params.cx) * scale_x;
+  scaled_cy_ = static_cast<float>(cam_params.cy) * scale_y;
 
   // initialize depth cloud
   initializeDepthCloud();
@@ -88,9 +90,31 @@ std::vector<float> MonoDepthEstimation::imageToTensor(const cv::Mat &mat)
     tensor_data.assign((float *)mat.datastart, (float *)mat.dataend);
   else
   {
-    for(int i = 0; i < mat.rows; i++)
-      tensor_data.insert(tensor_data.end(), mat.ptr<float>(i),
-                         mat.ptr<float>(i) + mat.cols);
+    // Convert from HWC to CHW
+    if(mat.channels() == 1)
+    {
+      // Single-channel (grayscale)
+      for(int i = 0; i < mat.rows; ++i)
+      {
+        const float *row_ptr = mat.ptr<float>(i);
+        tensor_data.insert(tensor_data.end(), row_ptr, row_ptr + mat.cols);
+      }
+    }
+    else
+    {
+      // Multi-channel (e.g., RGB = 3 channels)
+      for(int c = 0; c < mat.channels(); ++c)
+      {
+        for(int i = 0; i < mat.rows; ++i)
+        {
+          for(int j = 0; j < mat.cols; ++j)
+          {
+            const cv::Vec<float, 3> &pixel = mat.at<cv::Vec<float, 3>>(i, j);
+            tensor_data.push_back(pixel[c]);
+          }
+        }
+      }
+    }
   }
   return tensor_data;
 }
@@ -147,22 +171,23 @@ void MonoDepthEstimation::runInference(const cv::Mat &input_img)
   int output_size = resize_h_ * resize_w_;
   result_.assign(output_host_, output_host_ + output_size);
 
+  // Convert to cv::Mat
+  cv::Mat depth_map(resize_h_, resize_w_, CV_32FC1, result_.data());
+  depth_map = depth_map * MAX_DEPTH;
+
   // store the depth image
-  depth_img_ = convertToDepthImg();
-  depth_map_ = convertToDepthMap();
+  depth_img_ = convertToDepthImg(depth_map);
 
   // convert to depth cloud
   cv::Mat resized_img;
   cv::resize(input_img, resized_img, cv::Size(resize_w_, resize_h_));
-  createPointCloudFromDepth(depth_map_, resized_img);
+  createPointCloudFromDepth(depth_map, resized_img);
 }
 
-cv::Mat MonoDepthEstimation::convertToDepthImg()
+cv::Mat MonoDepthEstimation::convertToDepthImg(const cv::Mat &depth_map)
 {
-  cv::Mat depth_map(resize_h_, resize_w_, CV_32FC1, result_.data());
-  depth_map *= MAX_DEPTH;
   cv::Mat depth_vis;
-  depth_map.convertTo(depth_vis, CV_8UC1, 255.0 / 80.0);
+  depth_map.convertTo(depth_vis, CV_8UC1, 255.0 / MAX_DEPTH);
   cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(8, 8));
   cv::Mat depth_clahe;
   clahe->apply(depth_vis, depth_clahe);
@@ -170,13 +195,6 @@ cv::Mat MonoDepthEstimation::convertToDepthImg()
   cv::applyColorMap(depth_clahe, depth_colormap, cv::COLORMAP_JET);
 
   return depth_colormap;
-}
-
-cv::Mat MonoDepthEstimation::convertToDepthMap()
-{
-  cv::Mat depth_map(resize_h_, resize_w_, CV_32FC1, result_.data());
-  depth_map *= MAX_DEPTH;
-  return depth_map;
 }
 
 void MonoDepthEstimation::initializeDepthCloud()
@@ -258,35 +276,20 @@ void MonoDepthEstimation::createPointCloudFromDepth(const cv::Mat &depth,
   sensor_msgs::PointCloud2Iterator<float> iter_z(depth_cloud_, "z");
   sensor_msgs::PointCloud2Iterator<float> iter_rgb(depth_cloud_, "rgb");
 
+  // Image flip vertically
+  cv::Mat depth_flipped;
+  cv::flip(depth, depth_flipped, 0);
+
   for(int v = 0; v < depth.rows; ++v)
   {
     for(int u = 0; u < depth.cols; ++u, ++iter_x, ++iter_y, ++iter_z)
     {
       float z;
 
-      if(depth.type() == CV_16UC1)
-      {
-        z = depth.at<uint16_t>(v, u) * 0.001f; // mm to meters
-      }
-      else if(depth.type() == CV_32FC1)
-      {
-        z = depth.at<float>(v, u);
-      }
-      else
-      {
-        z = 0;
-      }
+      z = depth_flipped.at<float>(v, u);
 
-      if(z == 0 || std::isnan(z))
-      {
-        *iter_x = *iter_y = *iter_z = std::numeric_limits<float>::quiet_NaN();
-        if(use_rgb_)
-          ++iter_rgb;
-        continue;
-      }
-
-      *iter_x = (u - cx_) * z / fx_;
-      *iter_y = (v - cy_) * z / fy_;
+      *iter_x = (u - scaled_cx_) * z / scaled_fx_;
+      *iter_y = (v - scaled_cy_) * z / scaled_fy_;
       *iter_z = z;
 
       if(use_rgb_)
